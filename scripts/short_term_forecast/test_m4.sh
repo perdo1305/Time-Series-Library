@@ -1,8 +1,9 @@
-export CUDA_VISIBLE_DEVICES=""
+# Set to use GPU 0 (your NVIDIA GeForce RTX 3080)
+export CUDA_VISIBLE_DEVICES=0
 
 model_name=TimesNet
 
-/home/pedroferreira/anaconda3/envs/bin_env/bin/python -u run.py \
+python -u run.py \
   --task_name short_term_forecast \
   --is_training 1 \
   --root_path ./dataset/m4 \
@@ -20,10 +21,11 @@ model_name=TimesNet
   --batch_size 16 \
   --d_model 32 \
   --d_ff 32 \
+  --seq_len 36 \
+  --label_len 18 \
+  --pred_len 18 \
   --top_k 5 \
   --des 'Exp' \
   --itr 1 \
   --learning_rate 0.001 \
-  --loss 'SMAPE' \
-  --use_gpu 0 \
-  --gpu_type 'cpu'
+  --loss 'SMAPE'

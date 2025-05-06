@@ -38,9 +38,9 @@ def separate_by_cycle(input_file="organized_battery_data.csv", output_dir="cycle
         # if "Cycle_Index" in df.columns:
         #   df = df.drop(columns=["Cycle_Index"])
         #    print("  Dropped 'Cycle_Index' column from the data")
-        if "Date_Time" in df.columns:
-            df = df.drop(columns=["Date_Time"])
-            print("  Dropped 'Date_Time' column from the data")
+        # if "Date_Time" in df.columns:
+        #    df = df.drop(columns=["Date_Time"])
+        #    print("  Dropped 'Date_Time' column from the data")
         if "source_file" in df.columns:
             df = df.drop(columns=["source_file"])
             print("  Dropped 'source_file' column from the data")

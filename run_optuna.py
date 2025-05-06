@@ -22,17 +22,36 @@ def optuna_objective(trial, args_template):
     args = argparse.Namespace(**vars(args_template))
 
     # Define the hyperparameters to optimize
+    # Number of encoder layers - controls the depth of the encoder stack
     args.e_layers = trial.suggest_int("e_layers", 1, 3)
+
+    # Number of decoder layers - controls the depth of the decoder stack
     args.d_layers = trial.suggest_int("d_layers", 1, 3)
+
+    # Expansion factor for the FFN - controls complexity of frequency components in TimesNet
     args.factor = trial.suggest_int("factor", 1, 5)
+
+    # Model dimension - controls the width of the network and feature representation capacity
     args.d_model = trial.suggest_categorical("d_model", [16, 32, 64, 128])
+
+    # Feed-forward network dimension - typically a multiple of d_model
     args.d_ff = trial.suggest_int("d_ff_mult", 2, 8) * args.d_model
+
+    # Top-k dominant frequencies in TimesNet - controls how many frequency components to consider
     args.top_k = trial.suggest_int("top_k", 1, 5)
+
+    # Batch size - affects training stability and memory usage
     args.batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64])
+
+    # Learning rate - scaled based on batch size for more stable training
     args.learning_rate = trial.suggest_float("lr", 1e-4, 1e-2, log=True) * (
         args.batch_size / 32
     )
+
+    # Number of attention heads - controls how many different attention patterns to learn
     args.n_heads = trial.suggest_categorical("n_heads", [2, 4, 8])
+
+    # Dropout rate - controls regularization strength to prevent overfitting
     args.dropout = trial.suggest_float("dropout", 0.0, 0.5)
 
     # Update model_id to include trial number

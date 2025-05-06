@@ -4,6 +4,7 @@ import pandas as pd
 import glob
 import re
 import torch
+import json
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from utils.timefeatures import time_features
@@ -277,6 +278,7 @@ class Dataset_Custom(Dataset):
         assert flag in ["train", "test", "val"]
         type_map = {"train": 0, "val": 1, "test": 2}
         self.set_type = type_map[flag]
+        self.flag = flag  
 
         self.features = features
         self.target = target
@@ -288,9 +290,16 @@ class Dataset_Custom(Dataset):
         self.root_path = root_path
         self.data_path = data_path
 
+        # Check if data_path is a JSON file containing cycle file selections
+        self.use_json_selection = False
+        if isinstance(data_path, str) and data_path.endswith(".json"):
+            self.use_json_selection = True
+
         # Handle directory structure for cycles - if self.data_path is just a cycle file like 'cycle_1.csv',
         # find which subdirectory it's in or prompt user to specify
-        if not os.path.exists(os.path.join(self.root_path, self.data_path)):
+        if not self.use_json_selection and not os.path.exists(
+            os.path.join(self.root_path, self.data_path)
+        ):
             # Try to find it in subdirectories
             found = False
             for subdir in os.listdir(self.root_path):
@@ -309,7 +318,44 @@ class Dataset_Custom(Dataset):
 
     def __read_data__(self):
         self.scaler = StandardScaler()
-        df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path))
+
+        if self.use_json_selection:
+            # Load file paths from JSON selection file
+            with open(os.path.join(self.root_path, self.data_path), "r") as f:
+                selection = json.load(f)
+
+            # Map flag to the appropriate selection key
+            selection_key = {"train": "train", "val": "validation", "test": "test"}[
+                self.flag
+            ]
+
+            # Get the list of files for the current flag
+            file_paths = selection[selection_key]
+
+            if not file_paths:
+                raise ValueError(
+                    f"No files found for {selection_key} in {self.data_path}"
+                )
+
+            print(f"Loading {len(file_paths)} files for {selection_key} set")
+
+            # Load and concatenate all files
+            dfs = []
+            for file_path in file_paths:
+                try:
+                    df = pd.read_csv(file_path)
+                    dfs.append(df)
+                except Exception as e:
+                    print(f"Error loading {file_path}: {e}")
+
+            if not dfs:
+                raise ValueError(f"Could not load any files for {selection_key}")
+
+            df_raw = pd.concat(dfs, ignore_index=True)
+            print(f"Loaded {len(dfs)} files with total {len(df_raw)} rows")
+        else:
+            # Original single file loading
+            df_raw = pd.read_csv(os.path.join(self.root_path, self.data_path))
 
         # Handle battery data format - rename Date_Time to date if needed
         if "Date_Time" in df_raw.columns and "date" not in df_raw.columns:
@@ -334,6 +380,10 @@ class Dataset_Custom(Dataset):
             if col in df_raw.columns:
                 df_raw = df_raw.drop(col, axis=1)
 
+# Handle "Date_Time" column if it exists, rename to "date" for consistency
+        if "Date_Time" in df_raw.columns and "date" not in df_raw.columns:
+            df_raw = df_raw.rename(columns={"Date_Time": "date"})
+
         # Ensure date is properly formatted
         if not pd.api.types.is_datetime64_any_dtype(df_raw["date"]):
             df_raw["date"] = pd.to_datetime(df_raw["date"])
@@ -347,7 +397,7 @@ class Dataset_Custom(Dataset):
         # Reorder the columns: date, feature_cols, target
         df_raw = df_raw[["date"] + cols + [self.target]]
 
-        # Calculate split points
+        # Calculate split points within the concatenated dataset
         num_train = int(len(df_raw) * 0.7)
         num_test = int(len(df_raw) * 0.2)
         num_vali = len(df_raw) - num_train - num_test
@@ -364,8 +414,42 @@ class Dataset_Custom(Dataset):
             df_data = df_raw[[self.target]]
 
         if self.scale:
-            train_data = df_data[border1s[0] : border2s[0]]
-            self.scaler.fit(train_data.values)
+            # When using JSON selection, we should fit scaler on the train set only
+            if self.use_json_selection and self.flag != "train":
+                # We need to temporarily load training data to fit the scaler
+                with open(os.path.join(self.root_path, self.data_path), "r") as f:
+                    selection = json.load(f)
+
+                # Load a sample of training files to fit the scaler
+                train_files = selection["train"][:5]  # Use a subset for efficiency
+                train_dfs = []
+                for file_path in train_files:
+                    try:
+                        df = pd.read_csv(file_path)
+                        if "Date_Time" in df.columns and "date" not in df.columns:
+                            df = df.rename(columns={"Date_Time": "date"})
+                        for col in cols_to_remove:
+                            if col in df.columns:
+                                df = df.drop(col, axis=1)
+                        train_dfs.append(df)
+                    except Exception as e:
+                        print(f"Error loading {file_path} for scaling: {e}")
+
+                if train_dfs:
+                    train_df = pd.concat(train_dfs, ignore_index=True)
+                    if self.features == "M" or self.features == "MS":
+                        train_data = train_df[cols_data.intersection(train_df.columns)]
+                    else:
+                        train_data = train_df[[self.target]]
+                    self.scaler.fit(train_data.values)
+                else:
+                    print("Warning: Could not load training data for scaling")
+                    self.scaler.fit(df_data.values)  # Fallback to current data
+            else:
+                # For single file or when in training mode, use the current data
+                train_data = df_data[border1s[0] : border2s[0]]
+                self.scaler.fit(train_data.values)
+
             data = self.scaler.transform(df_data.values)
         else:
             data = df_data.values
@@ -392,9 +476,14 @@ class Dataset_Custom(Dataset):
         # Print useful info about the dataset
         print(f"Loaded dataset with {self.data_x.shape[1]} features")
         print(f"Target feature: {self.target}")
-        print(
-            f"Data splits: Train: {num_train}, Validation: {num_vali}, Test: {num_test}"
-        )
+
+        if self.use_json_selection:
+            flag_names = {"train": "training", "val": "validation", "test": "testing"}
+            print(f"Using {len(file_paths)} files for {flag_names[self.flag]}")
+        else:
+            print(
+                f"Data splits: Train: {num_train}, Validation: {num_vali}, Test: {num_test}"
+            )
 
     def __getitem__(self, index):
         s_begin = index

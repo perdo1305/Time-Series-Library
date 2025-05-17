@@ -278,7 +278,7 @@ class Dataset_Custom(Dataset):
         assert flag in ["train", "test", "val"]
         type_map = {"train": 0, "val": 1, "test": 2}
         self.set_type = type_map[flag]
-        self.flag = flag  
+        self.flag = flag
 
         self.features = features
         self.target = target
@@ -380,7 +380,7 @@ class Dataset_Custom(Dataset):
             if col in df_raw.columns:
                 df_raw = df_raw.drop(col, axis=1)
 
-# Handle "Date_Time" column if it exists, rename to "date" for consistency
+        # Handle "Date_Time" column if it exists, rename to "date" for consistency
         if "Date_Time" in df_raw.columns and "date" not in df_raw.columns:
             df_raw = df_raw.rename(columns={"Date_Time": "date"})
 

@@ -24,6 +24,11 @@ def optuna_objective(trial, args_template):
     """Objective function for Optuna optimization."""
     args = argparse.Namespace(**vars(args_template))
 
+    # Print start of objective evaluation more prominently
+    print("\n" + "=" * 80)
+    print(f"STARTING TRIAL {trial.number}")
+    print("=" * 80)
+
     # Define the hyperparameters to optimize
     # Number of encoder layers - controls the depth of the encoder stack
     args.e_layers = trial.suggest_int("e_layers", 1, 3)
@@ -73,14 +78,16 @@ def optuna_objective(trial, args_template):
             "pred_len": args.pred_len,
             "task": args.task_name,
         }
+        # Make sure we're creating a new run with proper config
         wandb.init(
             project=args.wandb_project,
             entity=args.wandb_entity,
             name=run_name,
             config=wandb_config,
             group=args.optuna_study_name,
-            reinit=True,
+            reinit=True,  # This ensures a new run is created
         )
+        print(f"Initialized wandb run: {run_name}")
 
     # Create experiment
     if args.task_name == "long_term_forecast":
@@ -123,11 +130,12 @@ def optuna_objective(trial, args_template):
         0,
     )
 
-    print(f"\n{'=' * 50}")
-    print(f"TRIAL {trial.number} SETTINGS")
-    print(f"{'=' * 50}")
+    # Make the trial parameters more visible
+    print("\n" + "=" * 50)
+    print(f"TRIAL {trial.number} PARAMETERS:")
     for key, value in trial.params.items():
-        print(f"{key}: {value}")
+        print(f"  {key}: {value}")
+    print("=" * 50 + "\n")
 
     print("\n>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>".format(setting))
 
@@ -135,40 +143,114 @@ def optuna_objective(trial, args_template):
     best_vali_loss = float("inf")
 
     # Define a custom callback function to capture validation loss during training
-    def train_callback(epoch, train_loss, vali_loss, test_loss):
+    def train_callback(epoch, train_loss, vali_loss, test_loss, metrics=None):
         nonlocal best_vali_loss
-        if vali_loss < best_vali_loss:
-            best_vali_loss = vali_loss
 
-            # Log training metrics to wandb if enabled
+        # Calculate improvement metrics
+        vali_improvement = (
+            best_vali_loss - vali_loss if best_vali_loss != float("inf") else 0
+        )
 
-            wandb.log(
-                {
+        # Print epoch information with better formatting
+        print("\n" + "-" * 40)
+        print(f"TRIAL {trial.number} - EPOCH {epoch} RESULTS:")
+        print(f"  Train Loss:      {train_loss:.6f}")
+        print(f"  Validation Loss: {vali_loss:.6f}")
+        print(f"  Test Loss:       {test_loss:.6f}")
+
+        # Log training metrics to wandb on every epoch if enabled
+        if args.use_wandb:
+            try:
+                # Create base metrics dict
+                metrics_dict = {
                     "epoch": epoch,
                     "train_loss": train_loss,
                     "validation_loss": vali_loss,
                     "test_loss": test_loss,
-                },
-                step=epoch,  # Log at the current epoch
+                    "current_best_vali_loss": best_vali_loss,
+                    "validation_improvement": vali_improvement,
+                    "is_best_epoch": vali_loss < best_vali_loss,
+                }
+
+                # Add classification specific metrics if available
+                if metrics is not None and isinstance(metrics, dict):
+                    if "val_accuracy" in metrics:
+                        metrics_dict["validation_accuracy"] = metrics["val_accuracy"]
+                    if "test_accuracy" in metrics:
+                        metrics_dict["test_accuracy"] = metrics["test_accuracy"]
+                    # Add any other metrics that might be useful
+                    for key, value in metrics.items():
+                        if (
+                            key not in metrics_dict
+                            and key != "epoch"
+                            and key != "train_steps"
+                        ):
+                            metrics_dict[f"extra_{key}"] = value
+
+                # Log all metrics to wandb
+                wandb.log(metrics_dict, step=epoch)
+                print(f"Logged epoch {epoch} metrics to wandb")
+            except Exception as e:
+                print(f"Failed to log to wandb: {str(e)}")
+                print(f"Error type: {type(e).__name__}")
+                import traceback
+
+                traceback.print_exc()
+
+        # Print classification-specific metrics if available
+        if (
+            metrics is not None
+            and "val_accuracy" in metrics
+            and "test_accuracy" in metrics
+        ):
+            print(
+                f"Epoch {epoch}: Train Loss: {train_loss:.6f}, Val Loss: {vali_loss:.6f}, "
+                f"Val Acc: {metrics['val_accuracy']:.4f}, Test Loss: {test_loss:.6f}, "
+                f"Test Acc: {metrics['test_accuracy']:.4f}"
+            )
+        else:
+            # Print regular metrics
+            print(
+                f"Epoch {epoch}: Train Loss: {train_loss:.6f}, Validation Loss: {vali_loss:.6f}, Test Loss: {test_loss:.6f}"
             )
 
-        # Print training metrics
-        print(
-            f"Epoch {epoch}: Train Loss: {train_loss:.4f}, Validation Loss: {vali_loss:.4f}, Test Loss: {test_loss:.4f}"
-        )
+        # Update best validation loss if current one is better
+        if vali_loss < best_vali_loss:
+            old_best = best_vali_loss
+            best_vali_loss = vali_loss
+            print(
+                f"  IMPROVED! Old best: {old_best:.6f} → New best: {best_vali_loss:.6f}"
+            )
+        print("-" * 40 + "\n")
+
+        # Check for invalid validation loss
+        if not isinstance(vali_loss, (int, float)) or np.isnan(vali_loss):
+            print(f"WARNING: Invalid validation loss detected: {vali_loss}")
+            return True  # Stop training if validation loss is invalid
+
         return False  # Continue training
 
-    # Set the callback in the experiment object if supported
+    # Make sure callback is set properly
     if hasattr(exp, "set_callback"):
         exp.set_callback(train_callback)
-    # Watch the model with wandb to track gradients, parameters, etc.
-    if args.use_wandb and hasattr(exp, "model"):
-        wandb.watch(
-            exp.model,
-            log="all",  # Log gradients and parameters
-            log_freq=16,
-            log_graph=True,  # Log model graph
+        print("Callback function set successfully")
+    else:
+        print(
+            "WARNING: Experiment class does not support callbacks - wandb logging during training will not work"
         )
+
+    # Explicitly watch the model to track gradients
+    if args.use_wandb and hasattr(exp, "model"):
+        try:
+            wandb.watch(
+                exp.model,
+                log="all",
+                log_freq=16,
+                log_graph=True,
+            )
+            print("Model watching enabled in wandb")
+        except Exception as e:
+            print(f"Failed to watch model with wandb: {e}")
 
     # Train model
     try:
@@ -259,9 +341,21 @@ def optuna_objective(trial, args_template):
         # If all else fails, use a default high value
         if mse_value is None:
             print("Warning: Could not extract MSE value, using validation loss instead")
-            mse_value = best_vali_loss if best_vali_loss < float("inf") else 999.0
+            # Use best validation loss only if it's a valid number and not infinity
+            if (
+                best_vali_loss < float("inf")
+                and isinstance(best_vali_loss, (int, float))
+                and not np.isnan(best_vali_loss)
+            ):
+                mse_value = best_vali_loss
+            else:
+                print(
+                    "Warning: Best validation loss is invalid, using default high value"
+                )
+                mse_value = 999.0
 
         print(f"\nMSE Value for optimization: {mse_value}")
+        print(f"Best validation loss: {best_vali_loss}")
 
         # Make sure we return a valid float
         if not isinstance(mse_value, (int, float)) or np.isnan(mse_value):
@@ -270,24 +364,44 @@ def optuna_objective(trial, args_template):
 
         # Log final test metrics to wandb if enabled
         if args.use_wandb:
-            wandb.log(
-                {"final_mse": mse_value, "best_validation_loss": best_vali_loss},
-                step=args.train_epochs,  # Set final metrics at last epoch step
-            )
-            # Log trial completion
-            wandb.finish()
+            try:
+                wandb.log(
+                    {"final_mse": mse_value, "best_validation_loss": best_vali_loss},
+                    step=args.train_epochs,
+                )
+                print("Logged final metrics to wandb")
+                # Make sure to finish the run
+                wandb.finish()
+                print("Finished wandb run")
+            except Exception as e:
+                print(f"Error in final wandb logging: {e}")
+                try:
+                    wandb.finish()
+                except:
+                    pass
+
+        # Make the trial results more visible
+        print("\n" + "#" * 60)
+        print(f"TRIAL {trial.number} COMPLETED")
+        print(f"FINAL MSE VALUE: {mse_value}")
+        print(f"BEST VALIDATION LOSS: {best_vali_loss}")
+        print("#" * 60 + "\n")
 
         return mse_value
 
     except Exception as e:
         print(f"Testing failed for trial {trial.number}: {e}")
         # Return validation loss as fallback if testing fails
-        if best_vali_loss < float("inf"):
+        if (
+            best_vali_loss < float("inf")
+            and isinstance(best_vali_loss, (int, float))
+            and not np.isnan(best_vali_loss)
+        ):
+            print(f"Using best validation loss as fallback: {best_vali_loss}")
             return best_vali_loss
-        # Close wandb run if enabled
-        if args.use_wandb:
-            wandb.finish()
-        return float("inf")
+        else:
+            print("Warning: Best validation loss is invalid, using default high value")
+            return float("inf")
     finally:
         # Clean up GPU memory
         if args.gpu_type == "mps":
@@ -755,26 +869,235 @@ if __name__ == "__main__":
         if args.is_training:
             # Initialize wandb for regular training if enabled
             if args.use_wandb:
-                wandb.login()
-                wandb.init(
-                    project=args.wandb_project,
-                    entity=args.wandb_entity,
-                    name=f"{args.model}_{args.data}_{args.model_id}",
-                    config={
-                        "model": args.model,
-                        "data": args.data,
-                        "pred_len": args.pred_len,
-                        "task": args.task_name,
-                        "d_model": args.d_model,
-                        "n_heads": args.n_heads,
-                        "e_layers": args.e_layers,
-                        "d_layers": args.d_layers,
-                        "d_ff": args.d_ff,
-                        "learning_rate": args.learning_rate,
-                        "batch_size": args.batch_size,
-                        "dropout": args.dropout,
-                    },
+                try:
+                    wandb.login()
+                    run_name = f"{args.model}_{args.data}_{args.model_id}"
+                    print(f"Initializing wandb run: {run_name}")
+                    wandb.init(
+                        project=args.wandb_project,
+                        entity=args.wandb_entity,
+                        name=run_name,
+                        config={
+                            "model": args.model,
+                            "data": args.data,
+                            "pred_len": args.pred_len,
+                            "task": args.task_name,
+                            "d_model": args.d_model,
+                            "n_heads": args.n_heads,
+                            "e_layers": args.e_layers,
+                            "d_layers": args.d_layers,
+                            "d_ff": args.d_ff,
+                            "learning_rate": args.learning_rate,
+                            "batch_size": args.batch_size,
+                            "dropout": args.dropout,
+                        },
+                    )
+                except Exception as e:
+                    print(f"Failed to initialize wandb: {e}")
+                    args.use_wandb = False
+
+            for ii in range(args.itr):
+                # setting record of experiments
+                exp = Exp(args)  # set experiments
+                setting = "{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_dt{}_{}_{}".format(
+                    args.task_name,
+                    args.model_id,
+                    args.model,
+                    args.data,
+                    args.features,
+                    args.seq_len,
+                    args.label_len,
+                    args.pred_len,
+                    args.d_model,
+                    args.n_heads,
+                    args.e_layers,
+                    args.d_layers,
+                    args.d_ff,
+                    args.expand,
+                    args.d_conv,
+                    args.factor,
+                    args.embed,
+                    args.distil,
+                    args.des,
+                    ii,
                 )
+
+                print(
+                    ">>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>".format(
+                        setting
+                    )
+                )
+                exp.train(setting)
+
+                print(
+                    ">>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<".format(
+                        setting
+                    )
+                )
+                test_metrics = exp.test(setting)
+
+                # Log test metrics to wandb if enabled
+                if args.use_wandb:
+                    wandb.log(
+                        {"iteration": ii, "final_test_metrics": test_metrics},
+                        step=args.train_epochs,  # Set final metrics at last epoch step
+                    )
+
+                if args.gpu_type == "mps":
+                    torch.backends.mps.empty_cache()
+                elif args.gpu_type == "cuda":
+                    torch.cuda.empty_cache()
+
+            # Close wandb for regular training
+            if args.use_wandb:
+                wandb.finish()
+        else:
+            exp = Exp(args)  # set experiments
+            ii = 0
+            setting = "{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_dt{}_{}_{}".format(
+                args.task_name,
+                args.model_id,
+                args.model,
+                args.data,
+                args.features,
+                args.seq_len,
+                args.label_len,
+                args.pred_len,
+                args.d_model,
+                args.n_heads,
+                args.e_layers,
+                args.d_layers,
+                args.d_ff,
+                args.expand,
+                args.d_conv,
+                args.factor,
+                args.embed,
+                args.distil,
+                args.des,
+                ii,
+            )
+
+            print(
+                ">>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<".format(setting)
+            )
+            exp.test(setting, test=1)
+            if args.gpu_type == "mps":
+                torch.backends.mps.empty_cache()
+            elif args.gpu_type == "cuda":
+                torch.cuda.empty_cache()
+
+    # Add more visible study start/end messages for Optuna
+    if args.use_optuna:
+        print("\n" + "=" * 80)
+        print("STARTING OPTUNA HYPERPARAMETER OPTIMIZATION")
+        print("=" * 80 + "\n")
+
+        # Initialize wandb for the study if enabled
+        if args.use_wandb:
+            wandb.login()
+            # Initialize a summary run for the entire study
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=f"{args.optuna_study_name}_summary",
+                config={
+                    "model": args.model,
+                    "data": args.data,
+                    "pred_len": args.pred_len,
+                    "task": args.task_name,
+                    "n_trials": args.optuna_n_trials,
+                },
+                group=args.optuna_study_name,
+            )
+
+        study = optuna.create_study(
+            direction="minimize",
+            pruner=MedianPruner(),
+            study_name=args.optuna_study_name,
+            storage=args.optuna_storage,
+            load_if_exists=True,
+        )
+
+        # Run optimization
+        study.optimize(
+            lambda trial: optuna_objective(trial, args), n_trials=args.optuna_n_trials
+        )
+
+        # Print best results
+        print("\nBest trial:")
+        trial = study.best_trial
+        print(f"  Value: {trial.value}")
+        print("  Params: ")
+        for key, value in trial.params.items():
+            print(f"    {key}: {value}")
+
+        # Save to file
+        with open(f"{args.model}_{args.task_name}_best_params.json", "w") as f:
+            json.dump(trial.params, f, indent=4)
+
+        # Log best trial to wandb if enabled
+        if args.use_wandb:
+            wandb.log(
+                {
+                    "best_trial_number": trial.number,
+                    "best_trial_value": trial.value,
+                    **{f"best_{k}": v for k, v in trial.params.items()},
+                }
+            )
+            wandb.finish()
+
+        print("\n" + "=" * 80)
+        print("OPTUNA OPTIMIZATION COMPLETED")
+        print("\nBEST TRIAL RESULTS:")
+        print(f"  Trial Number: {study.best_trial.number}")
+        print(f"  Value: {study.best_trial.value}")
+        print("  Parameters: ")
+        for key, value in study.best_trial.params.items():
+            print(f"    {key}: {value}")
+        print("=" * 80 + "\n")
+    else:
+        if args.task_name == "long_term_forecast":
+            Exp = Exp_Long_Term_Forecast
+        elif args.task_name == "short_term_forecast":
+            Exp = Exp_Short_Term_Forecast
+        elif args.task_name == "imputation":
+            Exp = Exp_Imputation
+        elif args.task_name == "anomaly_detection":
+            Exp = Exp_Anomaly_Detection
+        elif args.task_name == "classification":
+            Exp = Exp_Classification
+        else:
+            Exp = Exp_Long_Term_Forecast
+
+        if args.is_training:
+            # Initialize wandb for regular training if enabled
+            if args.use_wandb:
+                try:
+                    wandb.login()
+                    run_name = f"{args.model}_{args.data}_{args.model_id}"
+                    print(f"Initializing wandb run: {run_name}")
+                    wandb.init(
+                        project=args.wandb_project,
+                        entity=args.wandb_entity,
+                        name=run_name,
+                        config={
+                            "model": args.model,
+                            "data": args.data,
+                            "pred_len": args.pred_len,
+                            "task": args.task_name,
+                            "d_model": args.d_model,
+                            "n_heads": args.n_heads,
+                            "e_layers": args.e_layers,
+                            "d_layers": args.d_layers,
+                            "d_ff": args.d_ff,
+                            "learning_rate": args.learning_rate,
+                            "batch_size": args.batch_size,
+                            "dropout": args.dropout,
+                        },
+                    )
+                except Exception as e:
+                    print(f"Failed to initialize wandb: {e}")
+                    args.use_wandb = False
 
             for ii in range(args.itr):
                 # setting record of experiments

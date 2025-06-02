@@ -5,7 +5,8 @@ import shutil
 
 
 def separate_by_cycle_filtered(
-    input_file="organized_battery_data.csv", output_dir="realistic_cycles"
+    input_file="organized_battery_data_1st_cycles_removed.csv",
+    output_dir="realistic_cycles",
 ):
     """
     Separates organized battery data by cycle index and saves each cycle in a separate CSV file.
@@ -20,7 +21,9 @@ def separate_by_cycle_filtered(
 
     # If input_file is a directory, assume it contains organized_battery_data.csv
     if os.path.isdir(input_file):
-        input_file = os.path.join(input_file, "organized_battery_data.csv")
+        input_file = os.path.join(
+            input_file, "organized_battery_data_1st_cycles_removed.csv"
+        )
 
     print(f"Processing {input_file}...")
 
@@ -42,6 +45,7 @@ def separate_by_cycle_filtered(
 
         # Filter to only keep the specified columns
         columns_to_keep = [
+            "Date_Time",
             "Current(A)",
             "Voltage(V)",
             "Capacity_Difference",

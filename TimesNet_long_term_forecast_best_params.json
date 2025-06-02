@@ -1,0 +1,7 @@
+{
+    "e_layers": 2,
+    "factor": 4,
+    "d_model": 16,
+    "top_k": 9,
+    "n_heads": 16
+}

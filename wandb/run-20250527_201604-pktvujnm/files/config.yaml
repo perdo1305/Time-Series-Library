@@ -1,0 +1,209 @@
+_wandb:
+    value:
+        cli_version: 0.19.11
+        m: []
+        python_version: 3.8.20
+        t:
+            "1":
+                - 1
+                - 5
+                - 35
+                - 53
+                - 55
+            "2":
+                - 1
+                - 5
+                - 35
+                - 53
+                - 55
+            "3":
+                - 2
+                - 13
+                - 16
+                - 23
+                - 55
+                - 61
+            "4": 3.8.20
+            "5": 0.19.11
+            "8":
+                - 5
+            "12": 0.19.11
+            "13": linux-x86_64
+activation:
+    value: gelu
+anomaly_ratio:
+    value: 0.25
+augmentation_ratio:
+    value: 0
+batch_size:
+    value: 16
+c_out:
+    value: 1
+channel_independence:
+    value: 1
+checkpoints:
+    value: ./checkpoints/
+d_conv:
+    value: 4
+d_ff:
+    value: 2048
+d_layers:
+    value: 1
+d_model:
+    value: 16
+data:
+    value: custom
+data_path:
+    value: /home/labrob/Documents/GIT/second_attempt_timesnet/shuffle_cycles/cycle-selection/selected_cycles_realistic_cycles_distributed_subset_10th.json
+dec_in:
+    value: 4
+decomp_method:
+    value: moving_avg
+des:
+    value: Optuna_Trial_11
+device:
+    value: cuda:0
+devices:
+    value: 0,1,2,3
+discdtw:
+    value: false
+discsdtw:
+    value: false
+distil:
+    value: true
+down_sampling_layers:
+    value: 0
+down_sampling_method:
+    value: null
+down_sampling_window:
+    value: 1
+dropout:
+    value: 0
+dtwwarp:
+    value: false
+e_layers:
+    value: 1
+embed:
+    value: timeF
+enc_in:
+    value: 4
+expand:
+    value: 2
+extra_tag:
+    value: ""
+factor:
+    value: 2
+features:
+    value: MS
+freq:
+    value: t
+gpu:
+    value: 0
+gpu_type:
+    value: cuda
+inverse:
+    value: false
+is_training:
+    value: 1
+itr:
+    value: 1
+jitter:
+    value: false
+label_len:
+    value: 24
+learning_rate:
+    value: 0.001
+loss:
+    value: MSE
+lradj:
+    value: type1
+magwarp:
+    value: false
+mask_rate:
+    value: 0.25
+model:
+    value: TimesNet
+model_id:
+    value: battery_cycle_trial_11
+moving_avg:
+    value: 25
+n_heads:
+    value: 16
+num_kernels:
+    value: 6
+num_workers:
+    value: 10
+optuna_n_trials:
+    value: 50
+optuna_storage:
+    value: sqlite:///optuna.db
+optuna_study_name:
+    value: reduced_dataset_optimization_1_10
+p_hidden_dims:
+    value:
+        - 128
+        - 128
+p_hidden_layers:
+    value: 2
+patch_len:
+    value: 16
+patience:
+    value: 5
+permutation:
+    value: false
+pred_len:
+    value: 24
+randompermutation:
+    value: false
+root_path:
+    value: ./CS2_35/
+rotation:
+    value: false
+scaling:
+    value: false
+seasonal_patterns:
+    value: Monthly
+seed:
+    value: 2
+seg_len:
+    value: 96
+seq_len:
+    value: 48
+shapedtwwarp:
+    value: false
+spawner:
+    value: false
+target:
+    value: Capacity_Difference
+task_name:
+    value: long_term_forecast
+timewarp:
+    value: false
+top_k:
+    value: 10
+train_epochs:
+    value: 20
+use_amp:
+    value: false
+use_dtw:
+    value: false
+use_gpu:
+    value: true
+use_multi_gpu:
+    value: false
+use_norm:
+    value: 1
+use_optuna:
+    value: true
+use_wandb:
+    value: true
+wandb_entity:
+    value: null
+wandb_project:
+    value: reduced_dataset_optimization_1_10
+wdba:
+    value: false
+windowslice:
+    value: false
+windowwarp:
+    value: false

@@ -4,12 +4,15 @@ import glob
 import shutil
 
 
-def separate_by_cycle(input_file="organized_battery_data.csv", output_dir="cycles"):
+def separate_by_cycle(
+    input_file="organized_battery_data_1st_cycles_removed.csv",
+    output_dir="cycles_1st_removed",
+):
     """
     Separates organized battery data by cycle index and saves each cycle in a separate CSV file.
 
     Args:
-        input_file: Path to the organized_battery_data.csv file
+        input_file: Path to the organized_battery_data_1st_cycles_removed.csv file
         output_dir: Directory where cycle data will be saved
     """
     # Create output directory if it doesn't exist
